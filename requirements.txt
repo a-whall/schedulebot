@@ -1,0 +1,5 @@
+accelerate
+python-dotenv
+pyspellchecker
+spacy
+transformers
