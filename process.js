@@ -14,9 +14,17 @@ function pythonChildProcess(discord_message, args, py_command='py', py_script='m
         pythonProcess.stderr.on('data', data => stderr += `${data}\n`)
 
         pythonProcess.on('close', exit_code =>
-            (exit_code === 0) ? resolve(stdout)
-            : reject(new Error(`Process exited with code ${exit_code}\n\n${stderr}`))
-        )
+        {
+            try
+            {
+                return (exit_code === 0) ? resolve(JSON.parse(stdout.toString()))
+                : reject(new Error(`Process exited with code ${exit_code}\n\n${stderr}`))
+            }
+            catch (error)
+            {
+                return reject(new Error(`${error}\n\n${stdout.toString()}`))
+            }   
+        })
     })
 }
 

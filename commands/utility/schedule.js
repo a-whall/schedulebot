@@ -18,12 +18,11 @@ export async function execute(interaction)
             `I handle scheduling and we're scheduled to play week w.\n` +
             `You may suggest a time or I can give you some options.`
         )
-        await db.updateConversationState(user.id, `initiated`)
-        interaction.reply("scheduling message sent")
+        await db.setConversationState(user.id, `initiated`)
+        interaction.reply("scheduling dm sent")
     }
     catch (error)
     {
-        console.error(`couldn't send DM to ${user.username}\n${error}`)
-        interaction.reply("scheduling message failed to send")
+        interaction.reply(`scheduling dm couldn't sent to ${user.username}\n${error}`)
     }
 }

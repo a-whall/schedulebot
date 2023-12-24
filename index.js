@@ -30,15 +30,15 @@ const client = new Client(
 
 
 // Load commands from file
-client.commands = new Collection();
+client.commands = new Collection()
 
-const foldersPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'commands');
+const foldersPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'commands')
 const commandFolders = fs.readdirSync(foldersPath)
 
 for (const folder of commandFolders)
 {
-    const commandsPath = path.join(foldersPath, folder);
-    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+    const commandsPath = path.join(foldersPath, folder)
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'))
 
     for (const file of commandFiles)
     {
@@ -48,11 +48,11 @@ for (const folder of commandFolders)
         if ('data' in command && 'execute' in command)
         {
             console.log(`Setting command ${command.data.name}`)
-            client.commands.set(command.data.name, command);
+            client.commands.set(command.data.name, command)
         }
         else
         {
-            console.log(`[WARNING] The command at ${filePath} is incomplete`);
+            console.log(`[WARNING] The command at ${filePath} is incomplete`)
         }
     }
 }
@@ -61,7 +61,7 @@ for (const folder of commandFolders)
 
 client.once("ready", readyClient =>
 {
-	console.log(`${readyClient.user.username} logged in.`)
+    console.log(`${readyClient.user.username} logged in.`)
     
     if (readyClient.user.id !== process.env.CLIENT_ID)
     {
@@ -78,30 +78,39 @@ client.on("messageCreate", async message =>
     {
         return;
     }
-    console.log(message)
-
     // Direct Message
     if (message.guildId === null)
     {
         let conversation = await db.getConversationState(message.author.id)
-        console.log(conversation)
         message.state = conversation.state
+
+        console.log(
+            `DirectMessage from ${message.author.globalName} (${message.author.id})\n` +
+            `- Content: ${message.content}` +
+            `- State: ${message.state}`
+        )
+
         message.channel.sendTyping()
-        let response = await pythonChildProcess(message, ['content', 'state'])
-        message.channel.send(response)
+        let result = await pythonChildProcess(message, ['content', 'state'])
+        message.channel.send(`# ${result.response.answer}\n- confidence: ${result.response.score.toFixed(2)}\n- interpreted as: ${result.question}`)
     }
-    // Channel Message
+    // Server Message
     else
     {
-        // Ignore channel unless mentioned
+        // Ignore unless mentioned
         if (message.mentions.has(client.user.id))
         {
-            // Strip mention before sending to model
+            const channel = message.client.channels.cache.get(message.channelId)
+            // Strip mention
             const mention = new RegExp(`<@!?${client.user.id}>`, 'g')
             message.content = message.content.replace(mention, '').trim()
+            console.log(
+                `Mentioned in channel ${channel.name} by ${message.author.globalName}\n` +
+                `- content: ${message.content}`
+            )
             message.channel.sendTyping()
-            let response = await pythonChildProcess(message, ['content'])
-            message.channel.send(response)
+            let result = await pythonChildProcess(message, ['content'])
+            message.channel.send(`# ${result.response.answer}\n- confidence: ${result.response.score.toFixed(2)}\n- interpreted as: ${result.question}`)
         }        
     }
 })
@@ -137,37 +146,37 @@ client.on("messageReactionRemove", async (reaction, user) =>
 
 client.on("interactionCreate", async interaction =>
 {
-	if (!interaction.isChatInputCommand())
+    if (!interaction.isChatInputCommand())
     {
         console.log(interaction)
         return
     }
 
-	const command = interaction.client.commands.get(interaction.commandName)
+    const command = interaction.client.commands.get(interaction.commandName)
 
-	if (!command)
+    if (!command)
     {
-		console.error(`No command matching ${interaction.commandName} was found.`)
-		return
-	}
+        console.error(`No command matching ${interaction.commandName} was found.`)
+        return
+    }
 
-	try
+    try
     {
-		await command.execute(interaction)
-	}
+        await command.execute(interaction)
+    }
     catch (error)
     {
-		console.error(error)
+        console.error(error)
 
         if (interaction.replied || interaction.deferred)
         {
-			await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true })
-		}
+            await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true })
+        }
         else
         {
-			await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true })
-		}
-	}
+            await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true })
+        }
+    }
 })
 
 

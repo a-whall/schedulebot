@@ -15,14 +15,14 @@ async function getConversationState(user_id)
     return res.rows[0]
 }
 
-async function updateConversationState(user_id, state)
+async function setConversationState(user_id, state)
 {
     await pool.query('INSERT INTO conversations (user_id, state) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET state = $2', [user_id, state])
 }
 
 const db = {
     getConversationState,
-    updateConversationState
+    setConversationState
 }
 
 export default db

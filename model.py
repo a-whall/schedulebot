@@ -1,5 +1,6 @@
 import argparse
 from dotenv import load_dotenv
+import json
 import os
 import spacy
 from spellchecker import SpellChecker
@@ -10,16 +11,17 @@ from transformers import (
     AutoModelForQuestionAnswering
 )
 
+
+
 load_dotenv()
 league_entities = os.getenv('LEAGUE_ENTITIES').split(',')
 
 spell_checker = SpellChecker()
 language_model = spacy.load('en_core_web_sm')
 
-def main(args):
 
-    print("state:", args.state)
-    conversation_state(args.state, "")
+
+def main(args):
 
     grammar_model = T5ForConditionalGeneration.from_pretrained(args.grammar_model_name)
     grammar_toker = AutoTokenizer.from_pretrained(args.grammar_model_name)
@@ -33,31 +35,29 @@ def main(args):
     for token in doc:
         if token.text not in spell_checker and not token.is_punct:
             corrected_word = spell_checker.correction(token.text)
-            print(f"Mispelled: {token.text}? -> {corrected_word}")
+            #print(f"Mispelled: {token.text}? -> {corrected_word}")
     
     has_date = any(ent.label_ in ['DATE'] for ent in doc.ents)
     has_time = any(ent.label_ in ['TIME'] for ent in doc.ents)
     is_wh_question = doc[0].text.lower() in ['who', 'what', 'where', 'when', 'why', 'how']
     has_auxiliary_verb = doc[0].tag_ in ['MD', 'VBZ', 'VBP']
-    
+
     has_inversion = False
     for token in doc:
         if token.dep_ == 'aux':
             for child in token.head.children:
                 if child.dep_ in ['nsubj', 'nsubjpass', 'csubj', 'csubjpass', 'expl'] and child.i > token.i:
                     has_inversion = True
-    
-    print("has_date:", has_date)
-    print("has_time:", has_time)
-    print("is_wh_question:", is_wh_question)
-    print("has_auxiliary_verb:", has_auxiliary_verb)
-    print("has_inversion:", has_inversion)
+
+    is_suggestion = has_date
+    if is_suggestion:
+        conversation_state(args.state, "suggestion")
 
     affirmative_context = 'Nothing is up.\nWe are available Tuesday any time.\nWe are available Wednesday at 5.\nWe are available Friday at 9.'
     negative_context = 'We are unavailable thursday.'
 
     qa_pipeline = pipeline('question-answering', model=args.qa_model_name, tokenizer=args.qa_model_name)
-    
+
     response = None
 
     negative = qa_pipeline({ 'question': edited_content, 'context': negative_context })
@@ -67,27 +67,60 @@ def main(args):
 
     if response is None:
         affirmative = qa_pipeline({ 'question': edited_content, 'context': affirmative_context })
-        if affirmative['score'] > 0.1 and response is None:
+        if affirmative['score'] > 0.1:
             response = affirmative
 
     if response is None:
         response = "Not sure, let me check with the dads"
     
+    output = {
+        'has_date': has_date,
+        'has_time': has_time,
+        'is_wh_question': is_wh_question,
+        'has_auxiliary_verb': has_auxiliary_verb,
+        'has_inversion': has_inversion,
+        'question': edited_content,
+        'response': response
+    }
+    print(json.dumps(output))
 
-    print(f"Q :\n{edited_content}")
-    print(f"AC:\n{affirmative_context}")
-    print(f"NC:\n{negative_context}")
-    print(f"R :\n{response}")
+    
 
+# Conversation Actions:
+# - Date/Time Suggestion
+# - Date/Time Request
+# - Date/Time Constraint
+# - Date/Time Confirmation
+# - Date/Time Denial
+# - Other
 
+# Team Control Actions:
+# - /Schedule
+# - Modify poll Date/Time
+
+# States:
+# - Initiated: Someone on our team has invoked `/schedule user` and the bot has sent a message starting the scheduling conversation asking for Suggestion or Request.
+# - Polling: The bot is waiting on the results of a poll in #scheduling channel.
+# - Awaiting: The bot is waiting on the response of another team.
 
 def conversation_state(state, action, last_poll=None):
+    """ Returns indicator for what type of response the model should generate """
 
     if state == "initiated":
-        if action == "":
+        if action == "suggestion":
+            # print("Assess the suggestion using the qa model pipeline")
+            return "qa"
+            # if negative context match:
+                # Find closest day not in negative context to make a suggestion
+            # else check affirmative context match:
+                # 
+        elif action == "request":
             print("Randomly sample a time from affirmative context to suggest")
             print("Make a poll in scheduling with sampled time")
-            return "Polling"
+            return "poll"
+        else:
+            print("response type not implemented")
+            return "initiated"
 
     elif state == "Polling":
         if action == "Passes":
