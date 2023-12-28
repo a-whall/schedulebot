@@ -86,8 +86,8 @@ client.on("messageCreate", async message =>
 
         console.log(
             `DirectMessage from ${message.author.globalName} (${message.author.id})\n` +
-            `- Content: ${message.content}` +
-            `- State: ${message.state}`
+            `- Message Content: "${message.content}"\n` +
+            `- Stored State: ${message.state}`
         )
 
         message.channel.sendTyping()
@@ -146,9 +146,40 @@ client.on("messageReactionRemove", async (reaction, user) =>
 
 client.on("interactionCreate", async interaction =>
 {
+    if (!interaction.isButton())
+    {
+        return
+    }
+
+    if (interaction.customId.startsWith('confirm'))
+    {
+        const original_message = await interaction.message.fetch()
+        const cancel = original_message.components[0].components.find(component => component.customId === 'cancel')
+        await original_message.edit({ components: buttons.confirmation(true, cancel.disabled) })
+        await interaction.reply(`Confirmed`)
+    }
+    else if (interaction.customId.startsWith('cancel'))
+    {
+        const original_message = await interaction.message.fetch()
+        const confirm = original_message.components[0].components.find(component => component.customId === 'confirm')
+        await original_message.edit({ components: buttons.confirmation(confirm.disabled, true) })
+        await interaction.reply(`Canceled`)
+    }
+    else if (interaction.customId.startsWith('time_'))
+    {
+        const original_message = await interaction.message.fetch()
+        original_message.edit({ components: buttons.selected(interaction.customId, original_message.components) })
+        let suggested_time = interaction.customId.split('_')[1]
+        await interaction.reply(`Selected ${suggested_time}`)
+    }
+})
+
+
+
+client.on("interactionCreate", async interaction =>
+{
     if (!interaction.isChatInputCommand())
     {
-        console.log(interaction)
         return
     }
 
