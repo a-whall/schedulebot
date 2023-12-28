@@ -5,6 +5,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { pythonChildProcess } from "./process.js"
 import db from "./db.js" 
+import buttons from "./buttons.js"
 
 
 
@@ -101,16 +102,31 @@ client.on("messageCreate", async message =>
         if (message.mentions.has(client.user.id))
         {
             const channel = message.client.channels.cache.get(message.channelId)
+            if (message.content.toLowerCase().includes("options"))
+            {
+                await message.reply({
+                    content: `Select One`,
+                    components: buttons.time_selection('Monday 9:30pm', 'Tuesday 9pm', ' Wednesday 10pm')
+                })
+            }
+            else
+            {
+                await message.reply({
+                    content: 'Confirm??',
+                    components: buttons.confirmation(false, false)
+                })
+            }
+
             // Strip mention
-            const mention = new RegExp(`<@!?${client.user.id}>`, 'g')
-            message.content = message.content.replace(mention, '').trim()
-            console.log(
-                `Mentioned in channel ${channel.name} by ${message.author.globalName}\n` +
-                `- content: ${message.content}`
-            )
-            message.channel.sendTyping()
-            let result = await pythonChildProcess(message, ['content'])
-            message.channel.send(`# ${result.response.answer}\n- confidence: ${result.response.score.toFixed(2)}\n- interpreted as: ${result.question}`)
+            // const mention = new RegExp(`<@!?${client.user.id}>`, 'g')
+            // message.content = message.content.replace(mention, '').trim()
+            // console.log(
+            //     `Mentioned in channel ${channel.name} by ${message.author.globalName}\n` +
+            //     `- content: ${message.content}`
+            // )
+            // message.channel.sendTyping()
+            // let result = await pythonChildProcess(message, ['content'])
+            // message.channel.send(`# ${result.response.answer}\n- confidence: ${result.response.score.toFixed(2)}\n- interpreted as: ${result.question}`)
         }        
     }
 })
