@@ -92,7 +92,7 @@ client.on("messageCreate", async message =>
 
         message.channel.sendTyping()
         let result = await pythonChildProcess(message, ['content', 'state'])
-        message.channel.send(`# ${result.response.answer}\n- confidence: ${result.response.score.toFixed(2)}\n- interpreted as: ${result.question}`)
+        message.channel.send(`# ${result.response}\n- confidence: ${result.score}\n- interpreted as: ${result.question}\n- purpose detection:\n  - ${Object.entries(result.action_category_score).map(([category,score])=>`${category}: ${score.toFixed(2)}`).join('\n  - ')}`)
     }
     // Server Message
     else

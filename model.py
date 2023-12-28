@@ -10,6 +10,10 @@ from transformers import (
     T5ForConditionalGeneration,
     AutoModelForQuestionAnswering
 )
+from sentence_transformers import (
+    SentenceTransformer,
+    util
+)
 
 
 
@@ -19,29 +23,74 @@ league_entities = os.getenv('LEAGUE_ENTITIES').split(',')
 spell_checker = SpellChecker()
 language_model = spacy.load('en_core_web_sm')
 
+# TODO: For efficiency, store model output embeddings, not the raw strings.
+phrases = {
+    "greeting": [
+        "Hi.",
+        "What's up.",
+        "Good day.",
+        "Hello.",
+        "Yo."
+    ],
+    "suggestion": [
+        "How about next Monday at 3 PM?",
+        "Can we meet on Friday morning?",
+        "Is Wednesday at 10 o'clock good for you?",
+        "Let's schedule it for Tuesday afternoon.",
+        "I'm available this Thursday at 2 PM, does that work?"
+    ],
+    "availability_request": [
+        "When are you free to meet?",
+        "What times do you have open?",
+        "Can you suggest a suitable time?",
+        "Tell me your available slots.",
+        "Do you have time this week?"
+    ],
+    "confirmation": [
+        "Sounds good.",
+        "Sure.",
+        "Yeah.",
+        "Yes.",
+        "That time works for me.",
+        "I'm okay with the proposed schedule.",
+        "Yes, let's lock in that time.",
+        "I agree with your time suggestion.",
+        "That schedule is perfect for me."
+    ],
+    "rescheduling": [
+        "Can we move it to a different day?",
+        "I need to reschedule our meeting.",
+        "That time doesn't work for me, how about another?",
+        "Is it possible to change the meeting time?",
+        "I have to push our meeting to a later time."
+    ]
+}
+
 
 
 def main(args):
 
-    grammar_model = T5ForConditionalGeneration.from_pretrained(args.grammar_model_name)
-    grammar_toker = AutoTokenizer.from_pretrained(args.grammar_model_name)
+    # Grammar Correction: get grammar-corrected content
+    gc_model = T5ForConditionalGeneration.from_pretrained(args.gc_model_name)
+    gc_toker = AutoTokenizer.from_pretrained(args.gc_model_name)
+    gc_model_input_ids = gc_toker(f"Fix the grammar: {args.content}", return_tensors="pt").input_ids
+    gc_model_outputs = gc_model.generate(gc_model_input_ids, max_length=256)
+    gc_content = gc_toker.decode(gc_model_outputs[0], skip_special_tokens=True)
 
-    grammar_model_input_ids = grammar_toker(f"Fix the grammar: {args.content}", return_tensors="pt").input_ids
-    grammar_model_outputs = grammar_model.generate(grammar_model_input_ids, max_length=256)
-    edited_content = grammar_toker.decode(grammar_model_outputs[0], skip_special_tokens=True)
+    # Paraphrase Detection
+    pd_model = SentenceTransformer(args.pd_model_name)
+    input_embedding = pd_model.encode(gc_content, convert_to_tensor=True)
+    category_similarities = {category: util.cos_sim(input_embedding, pd_model.encode(sentences, convert_to_tensor=True)).mean().item() for category, sentences in phrases.items()}
 
-    doc = language_model(edited_content)
+    # Spelling Correction: it's possible that the grammar correction model missed some words.
+    doc = language_model(gc_content)
+    misspelled_words = {token.text: spell_checker.correction(token.text) for token in doc if token.text not in spell_checker and not token.is_punct}
 
-    for token in doc:
-        if token.text not in spell_checker and not token.is_punct:
-            corrected_word = spell_checker.correction(token.text)
-            #print(f"Mispelled: {token.text}? -> {corrected_word}")
-    
+    # NLP Attributes
     has_date = any(ent.label_ in ['DATE'] for ent in doc.ents)
     has_time = any(ent.label_ in ['TIME'] for ent in doc.ents)
     is_wh_question = doc[0].text.lower() in ['who', 'what', 'where', 'when', 'why', 'how']
     has_auxiliary_verb = doc[0].tag_ in ['MD', 'VBZ', 'VBP']
-
     has_inversion = False
     for token in doc:
         if token.dep_ == 'aux':
@@ -49,10 +98,7 @@ def main(args):
                 if child.dep_ in ['nsubj', 'nsubjpass', 'csubj', 'csubjpass', 'expl'] and child.i > token.i:
                     has_inversion = True
 
-    is_suggestion = has_date
-    if is_suggestion:
-        conversation_state(args.state, "suggestion")
-
+    # Question Answering for 
     affirmative_context = 'Nothing is up.\nWe are available Tuesday any time.\nWe are available Wednesday at 5.\nWe are available Friday at 9.'
     negative_context = 'We are unavailable thursday.'
 
@@ -60,27 +106,30 @@ def main(args):
 
     response = None
 
-    negative = qa_pipeline({ 'question': edited_content, 'context': negative_context })
+    negative = qa_pipeline({ 'question': gc_content, 'context': negative_context })
     if negative['score'] > 0.1: #or not date_matches_answer:
         # suggest a different time
-        response = negative
+        response = negative['answer']
 
-    if response is None:
-        affirmative = qa_pipeline({ 'question': edited_content, 'context': affirmative_context })
-        if affirmative['score'] > 0.1:
-            response = affirmative
+    affirmative = qa_pipeline({ 'question': gc_content, 'context': affirmative_context })
+    if affirmative['score'] > 0.1:
+        if response is None:
+            response = affirmative['answer']
 
     if response is None:
         response = "Not sure, let me check with the dads"
-    
+
     output = {
         'has_date': has_date,
         'has_time': has_time,
         'is_wh_question': is_wh_question,
         'has_auxiliary_verb': has_auxiliary_verb,
         'has_inversion': has_inversion,
-        'question': edited_content,
-        'response': response
+        'question': gc_content,
+        'response': response,
+        'score': f"(+{affirmative['score']:.2f}, -{negative['score']:.2f})",
+        'uncorrected_words': misspelled_words,
+        'action_category_score': category_similarities
     }
     print(json.dumps(output))
 
@@ -167,16 +216,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--qa_model_name",
         type=str,
-        help="The name of the pre-trained Question-Answering model to load.",
+        help="The name of the pre-trained Question-Answering model to load. This model is used to get answers to scheduling queries.",
         default="deepset/roberta-base-squad2",
         metavar=""
     )
 
     parser.add_argument(
-        "--grammar_model_name",
+        "--gc_model_name",
         type=str,
-        help="The name of the pre-trained grammar fixing model to load.",
+        help="The name of the pre-trained grammar fixing model to load. This model is used to correct informal text from conversation which is needed because the other models were trained on formal text.",
         default="grammarly/coedit-large",
+        metavar=""
+    )
+
+    parser.add_argument(
+        "--pd_model_name",
+        help="The name of the pre-trained paraphrase detection model to load. This model is used to classify the goal of the user message content.",
+        default="all-MiniLM-L6-v2",
         metavar=""
     )
 
