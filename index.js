@@ -93,11 +93,41 @@ client.on("messageCreate", async message =>
 
         message.channel.sendTyping()
         let result = await pythonChildProcess(message, ['content', 'state'])
-        message.channel.send(`# ${result.response}\n- confidence: ${result.score}\n- interpreted as: ${result.question}\n- purpose detection:\n  - ${Object.entries(result.action_category_score).map(([category,score])=>`${category}: ${score.toFixed(2)}`).join('\n  - ')}`)
+        message.channel.send(
+            `# ${result.response}\n` +
+            `- confidence: ${result.score}\n` +
+            `- interpreted as: ${result.question}\n` +
+            `- intent detection:\n` +
+            `  - ${Object.entries(result.intent_scores).map(([category,score])=>`${category}: ${score.toFixed(2)}`).join('\n  - ')}\n` +
+            `- intent: ${result.intent}`
+        )
+        if ('poll' in result)
+        {
+            const [day, time] = result.poll.split('/')
+            if (time === "")
+            {
+                time = "10pm"
+            }
+            const channel = client.channels.cache.get(process.env.GENERAL_CHANNEL_ID)
+            if (channel)
+            {
+                let pollMessage = await channel.send(`How about ${day} at ${time}`)
+                pollMessage.react('👍')
+                pollMessage.react('👎')
+                // Add the poll to a db table of polls
+            }
+            else
+            {
+                console.log(`[Warning] channel doesn't exist, poll can't be made.`)
+            }
+        }
     }
     // Server Message
     else
     {
+        console.log(
+            `ChannelMessage posted by ${message.author.globalName} (${message.author.id}) in #${message.channel.name} (${message.channel.id})`
+        )
         // Ignore unless mentioned
         if (message.mentions.has(client.user.id))
         {
